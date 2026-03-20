@@ -46,5 +46,30 @@ pipeline {
                 sh 'docker push $DOCKER_IMAGE:latest'
             }
         }
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+
+                    sh '''
+                    export KUBECONFIG=$KUBECONFIG
+
+                    # Create namespace if not exists
+                    kubectl get ns $NAMESPACE || kubectl create ns $NAMESPACE
+
+                    # Apply manifests
+                    kubectl apply -f k8s/namespace.yaml || true
+                    kubectl apply -f k8s/deployment.yaml -n $NAMESPACE
+                    kubectl apply -f k8s/service.yaml -n $NAMESPACE
+
+                    # Update image dynamically
+                    kubectl set image deployment/flames-app \
+                    flames-container=$IMAGE_NAME:$BUILD_NUMBER \
+                    -n $NAMESPACE
+
+                    # Wait for rollout
+                    kubectl rollout status deployment/flames-app -n $NAMESPACE
+                    '''
+                }
+            }
     }
 }
